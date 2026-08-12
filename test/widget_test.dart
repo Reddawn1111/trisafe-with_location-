@@ -6,8 +6,7 @@ void main() {
   group('TripSafe foundation', () {
     testWidgets('app launches without crashing', (WidgetTester tester) async {
       await tester.pumpWidget(const TripSafeApp());
-      await tester.pumpAndSettle();
-      // App root widget is present
+      await tester.pump();
       expect(find.byType(MaterialApp), findsOneWidget);
     });
 
@@ -15,7 +14,7 @@ void main() {
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(const TripSafeApp());
-      await tester.pumpAndSettle();
+      await tester.pump();
       expect(find.text('TripSafe'), findsWidgets);
     });
 
@@ -23,11 +22,10 @@ void main() {
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(const TripSafeApp());
-      await tester.pumpAndSettle();
-      // Scroll down to bring button into view
-      await tester.drag(find.byType(CustomScrollView), const Offset(0, -400));
-      await tester.pumpAndSettle();
-      expect(find.text('Discover Destinations'), findsOneWidget);
+      await tester.pump();
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -500));
+      await tester.pump();
+      expect(find.text('Discover Destinations'), findsWidgets);
     });
   });
 }

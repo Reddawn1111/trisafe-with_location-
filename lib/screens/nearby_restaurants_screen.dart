@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:location/location.dart';
 
 import '../services/location_service.dart';
-import '../services/restaurant_service.dart';
+import '../services/nearby_discovery_service.dart';
 import '../services/recommendation_service.dart';
-import '../models/restaurant.dart';
+import '../models/place.dart';
+import '../models/place_category.dart';
 
 class NearbyRestaurantsScreen extends StatefulWidget {
   const NearbyRestaurantsScreen({super.key});
@@ -17,16 +17,10 @@ class NearbyRestaurantsScreen extends StatefulWidget {
 class _NearbyRestaurantsScreenState
     extends State<NearbyRestaurantsScreen> {
   final LocationService _locationService = LocationService();
+  final NearbyDiscoveryService _discoveryService = GooglePlacesNearbyService();
+  final RecommendationService _recommendationService = RecommendationService();
 
-  // Replace this during development.
-  final RestaurantService _restaurantService =
-      RestaurantService('YOUR_API_KEY');
-
-  final RecommendationService _recommendationService =
-      RecommendationService();
-
-  List<Restaurant> restaurants = [];
-
+  List<Place> restaurants = [];
   bool loading = false;
   String? error;
 
@@ -37,29 +31,22 @@ class _NearbyRestaurantsScreenState
     });
 
     try {
-      final LocationData? location =
-          await _locationService.getCurrentLocation();
+      final address = await _locationService.getCurrentLocationAddress();
+      final lat = address.latitude;
+      final lng = address.longitude;
 
-      if (location?.latitude == null ||
-          location?.longitude == null) {
-        throw Exception('Could not get your location.');
-      }
-
-      final lat = location!.latitude!;
-      final lng = location.longitude!;
-
-      final results =
-          await _restaurantService.getNearbyRestaurants(
+      final results = await _discoveryService.getNearbyPlaces(
         latitude: lat,
         longitude: lng,
         radiusMeters: 5000,
+        includedTypes: ['restaurant'],
       );
 
-      final ranked =
-          _recommendationService.rankRestaurants(
-        restaurants: results,
+      final ranked = _recommendationService.rankPlaces(
+        places: results,
         userLatitude: lat,
         userLongitude: lng,
+        selectedIntent: UserIntent.eat,
       );
 
       setState(() {
@@ -128,7 +115,7 @@ class _NearbyRestaurantsScreenState
 }
 
 class RestaurantCard extends StatelessWidget {
-  final Restaurant restaurant;
+  final Place restaurant;
   final int rank;
 
   const RestaurantCard({

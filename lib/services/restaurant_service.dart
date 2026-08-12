@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:your_app/models/restaurant.dart';
+import '../models/restaurant.dart';
 
 class RestaurantService {
   final String apiKey;
@@ -55,7 +55,7 @@ class RestaurantService {
       );
     }
 
-    final data = jsonDecode(response.body);
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
 
     final places = data['places'] as List<dynamic>? ?? [];
 
@@ -70,7 +70,7 @@ class RestaurantService {
         address: place['formattedAddress'] ?? '',
         rating: (place['rating'] as num?)?.toDouble() ?? 0,
         reviewCount: (place['userRatingCount'] as num?)?.toInt() ?? 0,
-        priceLevel: place['priceLevel'],
+        priceLevel: place['priceLevel']?.toString(),
       );
     }).toList();
   }
