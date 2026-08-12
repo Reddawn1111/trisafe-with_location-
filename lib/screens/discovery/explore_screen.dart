@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+
 import '../../models/place.dart';
 import '../../models/place_category.dart';
 import '../../services/location_service.dart';
@@ -20,16 +22,20 @@ class ExploreScreen extends StatefulWidget {
 
 class _ExploreScreenState extends State<ExploreScreen> {
   final LocationService _locationService = LocationService();
-  final NearbyDiscoveryService _discoveryService = GooglePlacesNearbyService();
+  final NearbyDiscoveryService _liveDiscoveryService = GeoapifyPlacesNearbyService();
+  final NearbyDiscoveryService _demoDiscoveryService = MockNearbyDiscoveryService();
   final RecommendationService _recommendationService = RecommendationService();
 
   LocationAddress? _currentAddress;
+  Position? _currentPosition;
   List<Place> _allNearbyPlaces = [];
   List<Place> _rankedPlaces = [];
 
   UserIntent _selectedIntent = UserIntent.all;
   bool _isLoading = true;
   String? _errorMessage;
+  bool _isApiNotConfigured = false;
+  bool _isDemoMode = false;
 
   @override
   void initState() {
@@ -41,24 +47,56 @@ class _ExploreScreenState extends State<ExploreScreen> {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _isApiNotConfigured = false;
     });
 
     try {
-      // 1. Obtain current GPS location & reverse geocoded address using existing LocationService
-      final address = await _locationService.getCurrentLocationAddress();
-      _currentAddress = address;
+      // 1. Obtain actual device GPS position via existing LocationService
+      final position = await _locationService.getCurrentPosition();
+      _currentPosition = position;
 
-      // 2. Discover nearby places using Places Discovery Service abstraction
-      final rawPlaces = await _discoveryService.getNearbyPlaces(
-        latitude: address.latitude,
-        longitude: address.longitude,
-        radiusMeters: 5000, // 5 km radius
-      );
+      // 2. Reverse-geocode the same GPS fix for the UI header (no second GPS read)
+      try {
+        final address = await _locationService.getAddressForCoordinates(
+          position.latitude,
+          position.longitude,
+        );
+        _currentAddress = address;
+      } catch (_) {
+        // Reverse geocoding optional fallback for header label
+      }
+
+      // 3. Select active service provider (Live vs Demo Mode)
+      List<Place> rawPlaces = [];
+      if (_isDemoMode) {
+        rawPlaces = await _demoDiscoveryService.getNearbyPlaces(
+          latitude: position.latitude,
+          longitude: position.longitude,
+          radiusMeters: 5000,
+        );
+      } else {
+        rawPlaces = await _liveDiscoveryService.getNearbyPlaces(
+          latitude: position.latitude,
+          longitude: position.longitude,
+          radiusMeters: 5000,
+        );
+      }
 
       _allNearbyPlaces = rawPlaces;
 
-      // 3. Rank places using Recommendation Engine
+      // 4. Rank places using Recommendation Engine
       _applyRecommendationFilter();
+    } on PlacesApiException catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          if (e.code == 'API_NOT_CONFIGURED') {
+            _isApiNotConfigured = true;
+          } else {
+            _errorMessage = e.message;
+          }
+        });
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -70,15 +108,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   void _applyRecommendationFilter() {
-    if (_currentAddress == null) {
+    if (_currentPosition == null) {
       setState(() => _isLoading = false);
       return;
     }
 
     final ranked = _recommendationService.rankPlaces(
       places: List.from(_allNearbyPlaces),
-      userLatitude: _currentAddress!.latitude,
-      userLongitude: _currentAddress!.longitude,
+      userLatitude: _currentPosition!.latitude,
+      userLongitude: _currentPosition!.longitude,
       selectedIntent: _selectedIntent,
       searchRadiusKm: 5.0,
     );
@@ -95,6 +133,13 @@ class _ExploreScreenState extends State<ExploreScreen> {
       _selectedIntent = intent;
     });
     _applyRecommendationFilter();
+  }
+
+  void _toggleDemoMode(bool enabled) {
+    setState(() {
+      _isDemoMode = enabled;
+    });
+    _loadLocationAndPlaces();
   }
 
   @override
@@ -117,6 +162,41 @@ class _ExploreScreenState extends State<ExploreScreen> {
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
+            // ── Demo Mode Banner if active ────────────────────────────────
+            if (_isDemoMode)
+              SliverToBoxAdapter(
+                child: Container(
+                  color: Colors.amber.shade800,
+                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: AppSpacing.md),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
+                      const SizedBox(width: 8),
+                      Text(
+                        'DEMO MODE — Showing Sample Data',
+                        style: AppTypography.caption.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Spacer(),
+                      InkWell(
+                        onTap: () => _toggleDemoMode(false),
+                        child: Text(
+                          'Exit Demo',
+                          style: AppTypography.caption.copyWith(
+                            color: Colors.white,
+                            decoration: TextDecoration.underline,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
             // ── Location & Header Banner ──────────────────────────────────
             SliverToBoxAdapter(
               child: _buildHeaderCard(theme),
@@ -136,10 +216,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     children: [
                       CircularProgressIndicator(),
                       SizedBox(height: AppSpacing.md),
-                      Text('Discovering interesting places nearby...'),
+                      Text('Discovering nearby points of interest...'),
                     ],
                   ),
                 ),
+              )
+            else if (_isApiNotConfigured)
+              SliverFillRemaining(
+                child: _buildUnconfiguredState(),
               )
             else if (_errorMessage != null)
               SliverFillRemaining(
@@ -157,20 +241,20 @@ class _ExploreScreenState extends State<ExploreScreen> {
             else
               SliverList(
                 delegate: SliverChildListDelegate([
-                  // 1. Recommended for You (Top carousel/cards)
-                  _buildSectionHeader('⭐ Recommended For You', 'Scored by rating, popularity & distance'),
+                  // 1. Recommended for You
+                  _buildSectionHeader('⭐ Recommended For You', 'Scored by rating, review popularity & distance'),
                   _buildRecommendedCarousel(),
 
                   const SizedBox(height: AppSpacing.lg),
 
                   // 2. Popular Nearby
-                  _buildSectionHeader('🔥 Popular Nearby', 'High review count & traveler activity'),
+                  _buildSectionHeader('🔥 Popular Nearby', 'High review activity'),
                   ..._buildPopularList(),
 
                   const SizedBox(height: AppSpacing.lg),
 
                   // 3. Closest Options
-                  _buildSectionHeader('📍 Closest Options', 'Shortest distance from current location'),
+                  _buildSectionHeader('📍 Closest Options', 'Closest to device GPS location'),
                   ..._buildClosestList(),
 
                   const SizedBox(height: AppSpacing.xxl),
@@ -227,7 +311,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 Text(
                   _currentAddress != null
                       ? '📍 ${_currentAddress!.areaLabel}'
-                      : 'Detecting your location...',
+                      : _currentPosition != null
+                          ? '📍 GPS: ${_currentPosition!.latitude.toStringAsFixed(3)}, ${_currentPosition!.longitude.toStringAsFixed(3)}'
+                          : 'Detecting your location...',
                   style: AppTypography.titleMedium.copyWith(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
@@ -330,7 +416,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   List<Widget> _buildPopularList() {
-    // Sort by review count
     final popular = List<Place>.from(_rankedPlaces)
       ..sort((a, b) => b.reviewCount.compareTo(a.reviewCount));
 
@@ -346,7 +431,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   List<Widget> _buildClosestList() {
-    // Sort by distance
     final closest = List<Place>.from(_rankedPlaces)
       ..sort((a, b) => a.distanceKm.compareTo(b.distanceKm));
 
@@ -359,6 +443,42 @@ class _ExploreScreenState extends State<ExploreScreen> {
         ),
       );
     }).toList();
+  }
+
+  /// Explicit API Unconfigured State Screen (Enforces Rules 9 & 10)
+  Widget _buildUnconfiguredState() {
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.api_outlined, size: 64, color: Colors.orangeAccent),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            'Nearby Places API Not Configured',
+            style: AppTypography.titleMedium.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'GEOAPIFY_API_KEY is required to search live places around your actual GPS location.',
+            textAlign: TextAlign.center,
+            style: AppTypography.bodyMedium.copyWith(color: Colors.grey),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          PrimaryButton(
+            label: 'Retry Connection',
+            icon: Icons.refresh,
+            onPressed: _loadLocationAndPlaces,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          OutlinedButton.icon(
+            onPressed: () => _toggleDemoMode(true),
+            icon: const Icon(Icons.developer_mode),
+            label: const Text('Enable Demo Mode (Sample Data)'),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildErrorState() {
@@ -381,7 +501,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
           ),
           const SizedBox(height: AppSpacing.lg),
           PrimaryButton(
-            label: 'Grant Permission / Retry',
+            label: 'Retry',
             icon: Icons.refresh,
             onPressed: _loadLocationAndPlaces,
           ),
@@ -391,7 +511,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 }
 
-/// Featured Card for "Recommended for You" carousel
 class _RecommendedPlaceCard extends StatelessWidget {
   final Place place;
   final VoidCallback onTap;
@@ -412,7 +531,6 @@ class _RecommendedPlaceCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Banner Image or Category Header
           Stack(
             children: [
               Container(
@@ -438,8 +556,6 @@ class _RecommendedPlaceCard extends StatelessWidget {
                       )
                     : _buildCategoryPlaceholder(),
               ),
-
-              // Category Badge
               Positioned(
                 top: 8,
                 left: 8,
@@ -458,8 +574,6 @@ class _RecommendedPlaceCard extends StatelessWidget {
                   ),
                 ),
               ),
-
-              // Recommendation Score Badge
               Positioned(
                 top: 8,
                 right: 8,
@@ -480,7 +594,6 @@ class _RecommendedPlaceCard extends StatelessWidget {
               ),
             ],
           ),
-
           Padding(
             padding: const EdgeInsets.all(AppSpacing.sm),
             child: Column(
@@ -493,13 +606,14 @@ class _RecommendedPlaceCard extends StatelessWidget {
                   style: AppTypography.bodyLarge.copyWith(fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 2),
-
                 Row(
                   children: [
                     const Icon(Icons.star, color: Colors.amber, size: 16),
                     const SizedBox(width: 2),
                     Text(
-                      '${place.rating.toStringAsFixed(1)} (${place.reviewCount})',
+                      place.hasRating
+                          ? '⭐ ${place.ratingLabel} (${place.reviewCountLabel})'
+                          : '⭐ Rating unavailable',
                       style: AppTypography.caption.copyWith(fontWeight: FontWeight.bold),
                     ),
                     const Spacer(),
@@ -509,9 +623,7 @@ class _RecommendedPlaceCard extends StatelessWidget {
                     ),
                   ],
                 ),
-
                 const SizedBox(height: 6),
-
                 Text(
                   place.recommendationReason,
                   maxLines: 1,
@@ -521,9 +633,7 @@ class _RecommendedPlaceCard extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-
                 const SizedBox(height: 8),
-
                 Row(
                   children: [
                     Expanded(
@@ -567,7 +677,6 @@ class _RecommendedPlaceCard extends StatelessWidget {
   }
 }
 
-/// List Tile Card for Popular & Closest Places
 class _PlaceTileCard extends StatelessWidget {
   final Place place;
   final VoidCallback onTap;
@@ -584,7 +693,6 @@ class _PlaceTileCard extends StatelessWidget {
       onTap: onTap,
       child: Row(
         children: [
-          // Category Avatar / Image
           ClipRRect(
             borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
             child: Container(
@@ -601,10 +709,7 @@ class _PlaceTileCard extends StatelessWidget {
                   : Center(child: Text(place.category.iconEmoji, style: const TextStyle(fontSize: 28))),
             ),
           ),
-
           const SizedBox(width: AppSpacing.sm),
-
-          // Details
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -628,7 +733,9 @@ class _PlaceTileCard extends StatelessWidget {
                     const Icon(Icons.star, color: Colors.amber, size: 14),
                     const SizedBox(width: 2),
                     Text(
-                      '${place.rating.toStringAsFixed(1)} (${place.reviewCount})',
+                      place.hasRating
+                          ? '${place.ratingLabel} (${place.reviewCountLabel})'
+                          : 'Rating unavailable',
                       style: AppTypography.caption.copyWith(fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(width: 12),
@@ -643,7 +750,6 @@ class _PlaceTileCard extends StatelessWidget {
               ],
             ),
           ),
-
           const Icon(Icons.chevron_right, color: Colors.grey),
         ],
       ),

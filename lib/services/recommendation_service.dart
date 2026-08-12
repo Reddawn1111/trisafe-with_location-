@@ -49,10 +49,32 @@ class RecommendationService {
   }) {
     if (places.isEmpty) return [];
 
-    // Find max review count across places to normalize popularity logarithmically
-    final maxReviews = places.map((p) => p.reviewCount).reduce(max);
+    // Filter out places beyond the search radius (mandatory distance validation).
+    final withinRadius = places.where((place) {
+      final distKm = computeDistanceKm(
+        userLatitude,
+        userLongitude,
+        place.latitude,
+        place.longitude,
+      );
+      return distKm <= searchRadiusKm;
+    }).toList();
 
-    final rankedList = places.map((place) {
+    if (withinRadius.isEmpty) return [];
+
+    // When a specific intent is selected, keep only matching categories.
+    final intentFiltered = selectedIntent == UserIntent.all
+        ? withinRadius
+        : withinRadius
+            .where((place) => selectedIntent.matches(place.category, place.types))
+            .toList();
+
+    if (intentFiltered.isEmpty) return [];
+
+    // Find max review count across places to normalize popularity logarithmically
+    final maxReviews = intentFiltered.map((p) => p.reviewCount).reduce(max);
+
+    final rankedList = intentFiltered.map((place) {
       final distKm = computeDistanceKm(
         userLatitude,
         userLongitude,
@@ -127,12 +149,16 @@ class RecommendationService {
       return '🔥 Popular nearby (${formattedCount}k reviews)';
     }
 
-    if (place.rating >= 4.7) {
+    if (place.rating >= 4.7 && place.hasRating) {
       return '⭐ Top rated ${place.rating.toStringAsFixed(1)} location';
     }
 
     if (distKm <= 1.0) {
       return '📍 Very close to you (${distKm.toStringAsFixed(1)} km)';
+    }
+
+    if (!place.hasRating && !place.hasReviews) {
+      return '${place.category.iconEmoji} Recommended ${place.category.displayName} nearby';
     }
 
     return '${place.category.iconEmoji} Popular ${place.category.displayName}';

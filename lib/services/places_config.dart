@@ -1,27 +1,51 @@
-/// Configuration for Google Places API and discovery provider.
+/// Configuration for Geoapify Places API and discovery provider.
 abstract class PlacesConfig {
   PlacesConfig._();
 
-  /// Google Places API Key.
-  /// Replace with your active Google Cloud Places API Key for live API data.
-  /// If set to empty or invalid, the app gracefully uses the fallback mock provider.
-  static String googlePlacesApiKey = '';
+  /// Geoapify API Key.
+  /// Supports String.fromEnvironment('GEOAPIFY_API_KEY') or runtime assignment.
+  /// If unconfigured/empty, the app clearly displays an "API Not Configured" state
+  /// instead of silently returning mock data.
+  static String geoapifyApiKey = const String.fromEnvironment(
+    'GEOAPIFY_API_KEY',
+    defaultValue: '',
+  );
 
-  /// Default search radius in meters (5 km as required by prompt)
+  /// Helper getter to verify if the API key is configured.
+  static bool get isConfigured =>
+      geoapifyApiKey.isNotEmpty &&
+      geoapifyApiKey != 'YOUR_API_KEY' &&
+      geoapifyApiKey != 'YOUR_GEOAPIFY_API_KEY';
+
+  /// Default search radius in meters (5 km)
   static const double defaultRadiusMeters = 5000.0;
 
   /// Max places to fetch per request
-  static const int maxResultCount = 20;
+  static const int maxResultCount = 50;
 
-  /// Field mask requested from Google Places API (New) to control cost & payload size.
-  static const String googlePlacesFieldMask = 
-      'places.id,'
-      'places.displayName,'
-      'places.location,'
-      'places.formattedAddress,'
-      'places.rating,'
-      'places.userRatingCount,'
-      'places.priceLevel,'
-      'places.types,'
-      'places.photos';
+  /// Broad travel-relevant Geoapify categories for general nearby discovery.
+///
+/// Top-level categories are intentionally used here because Geoapify
+/// supports them directly and they include all relevant subcategories.
+static const String geoapifyTravelCategories =
+    'accommodation,'
+    'activity,'
+    'commercial,'
+    'catering,'
+    'entertainment,'
+    'leisure,'
+    'natural,'
+    'tourism,'
+    'sport,'
+    'parking';
+
+  static const List<String> excludedCategoryPrefixes = [
+  'healthcare',
+  'education',
+  'office',
+  'service',
+  'public_transport',
+  'adult',
+  'ski',
+];
 }

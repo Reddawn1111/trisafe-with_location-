@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 
-
 /// Structured result of a reverse-geocode lookup.
 class LocationAddress {
   final double latitude;
@@ -29,9 +28,8 @@ class LocationAddress {
     required this.fullAddress,
   });
 
-  /// Short bold label for a collapsed header, e.g. "Indiranagar".
-  String get areaLabel =>
-      landmark ?? town ?? city ?? 'Current Location';
+  /// Short bold label for a collapsed header, e.g. "Kogilu" or "Indiranagar".
+  String get areaLabel => landmark ?? town ?? city ?? 'Current Location';
 
   /// One-line truncated subtitle.
   String get shortLine {
@@ -41,9 +39,8 @@ class LocationAddress {
   }
 
   String get cityAndPincode {
-    final parts = [city, state, postcode]
-        .where((e) => e != null && e.isNotEmpty)
-        .toList();
+    final parts =
+        [city, state, postcode].where((e) => e != null && e.isNotEmpty).toList();
     return parts.isEmpty ? '-' : parts.join(', ');
   }
 }
@@ -51,9 +48,20 @@ class LocationAddress {
 class LocationService {
   static const _apiKey = 'pk.33e21dba133230a48e766d76ebb6bf21';
 
+  /// Fetches raw device GPS position using Geolocator.
+  Future<Position> getCurrentPosition() async {
+    return _determinePosition();
+  }
+
+  /// Obtains current GPS position and performs reverse geocoding lookup.
   Future<LocationAddress> getCurrentLocationAddress() async {
     final position = await _determinePosition();
-    return _reverseGeocode(position.latitude, position.longitude);
+    return getAddressForCoordinates(position.latitude, position.longitude);
+  }
+
+  /// Reverse-geocodes known coordinates without requesting GPS again.
+  Future<LocationAddress> getAddressForCoordinates(double lat, double lon) async {
+    return _reverseGeocode(lat, lon);
   }
 
   Future<Position> _determinePosition() async {
@@ -143,4 +151,3 @@ class LocationService {
     );
   }
 }
-

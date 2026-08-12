@@ -123,7 +123,82 @@ enum PlaceCategory {
     }
   }
 
-  /// Maps Google Places API place types to our generic PlaceCategory.
+  /// Maps Geoapify hierarchical categories to our generic PlaceCategory.
+  static PlaceCategory fromGeoapifyCategory(String category) {
+    final lower = category.toLowerCase();
+    if (lower.startsWith('catering.restaurant') ||
+        lower.startsWith('catering.fast_food') ||
+        lower.startsWith('catering.food_court')) {
+      return PlaceCategory.food;
+    }
+    if (lower.startsWith('catering.cafe') ||
+        lower.startsWith('catering.bakery') ||
+        lower.startsWith('catering.ice_cream') ||
+        lower.startsWith('catering.pub') ||
+        lower.startsWith('catering.bar')) {
+      return PlaceCategory.cafe;
+    }
+    if (lower.contains('beach') || lower.startsWith('natural.water')) {
+      return PlaceCategory.beach;
+    }
+    if (lower.startsWith('leisure.park') || lower.startsWith('leisure.garden')) {
+      return PlaceCategory.park;
+    }
+    if (lower.startsWith('natural.forest') ||
+        lower.startsWith('natural.nature_reserve') ||
+        lower.startsWith('natural.waterfall') ||
+        lower.startsWith('natural.peak')) {
+      return PlaceCategory.nature;
+    }
+    if (lower.startsWith('entertainment.museum') ||
+        lower.startsWith('entertainment.gallery') ||
+        lower.startsWith('entertainment.culture')) {
+      return PlaceCategory.museum;
+    }
+    if (lower.startsWith('tourism.attraction') ||
+        lower.startsWith('tourism.sights') ||
+        lower.startsWith('heritage')) {
+      return PlaceCategory.attraction;
+    }
+    if (lower.startsWith('tourism.viewpoint') || lower.contains('viewpoint')) {
+      return PlaceCategory.viewpoint;
+    }
+    if (lower.startsWith('tourism.picnic_site') || lower.contains('scenic')) {
+      return PlaceCategory.photography;
+    }
+    if (lower.startsWith('commercial.shopping') ||
+        lower.startsWith('commercial.marketplace') ||
+        lower.startsWith('commercial.department_store')) {
+      return PlaceCategory.shopping;
+    }
+    if (lower.startsWith('entertainment.')) {
+      return PlaceCategory.entertainment;
+    }
+    if (lower.startsWith('sport.') ||
+        lower.startsWith('leisure.sports') ||
+        lower.startsWith('leisure.playground')) {
+      return PlaceCategory.activity;
+    }
+    if (lower.startsWith('religion.') || lower.contains('place_of_worship')) {
+      return PlaceCategory.religious;
+    }
+    if (lower.startsWith('accommodation.hotel') ||
+        lower.startsWith('accommodation.hostel')) {
+      return PlaceCategory.hotel;
+    }
+    return PlaceCategory.other;
+  }
+
+  /// Picks the best matching category from a Geoapify category list.
+  static PlaceCategory primaryFromGeoapifyCategories(List<String> categories) {
+    for (final category in categories) {
+      final mapped = fromGeoapifyCategory(category);
+      if (mapped != PlaceCategory.other) return mapped;
+    }
+    return PlaceCategory.other;
+  }
+
+  /// Maps legacy/generic place type strings to our generic PlaceCategory.
   static PlaceCategory fromGoogleType(String type) {
     final lower = type.toLowerCase();
     if (lower.contains('restaurant') ||

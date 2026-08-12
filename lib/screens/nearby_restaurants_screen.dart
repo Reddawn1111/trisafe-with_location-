@@ -17,7 +17,7 @@ class NearbyRestaurantsScreen extends StatefulWidget {
 class _NearbyRestaurantsScreenState
     extends State<NearbyRestaurantsScreen> {
   final LocationService _locationService = LocationService();
-  final NearbyDiscoveryService _discoveryService = GooglePlacesNearbyService();
+  final NearbyDiscoveryService _discoveryService = GeoapifyPlacesNearbyService();
   final RecommendationService _recommendationService = RecommendationService();
 
   List<Place> restaurants = [];

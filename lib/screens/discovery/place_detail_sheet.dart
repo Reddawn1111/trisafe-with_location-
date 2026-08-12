@@ -172,14 +172,14 @@ class _PlaceDetailSheetState extends State<PlaceDetailSheet> {
                   const Icon(Icons.star, color: Colors.amber, size: 18),
                   const SizedBox(width: 4),
                   Text(
-                    place.rating.toStringAsFixed(1),
+                    place.hasRating ? place.ratingLabel : 'Unavailable',
                     style: AppTypography.labelLarge.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    '(${place.reviewCount} reviews)',
+                    '(${place.reviewCountLabel})',
                     style: AppTypography.caption.copyWith(color: Colors.grey),
                   ),
                 ],

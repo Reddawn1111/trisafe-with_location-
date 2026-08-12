@@ -4,8 +4,18 @@ import '../models/place.dart';
 import '../models/place_category.dart';
 import 'places_config.dart';
 
+/// Custom Exception thrown when Places API is not configured or fails.
+class PlacesApiException implements Exception {
+  final String code;
+  final String message;
+
+  PlacesApiException(this.code, this.message);
+
+  @override
+  String toString() => message;
+}
+
 /// Abstract service interface for nearby place discovery.
-/// Enables pluggable providers (Google Places API, Mock data, custom backend).
 abstract class NearbyDiscoveryService {
   Future<List<Place>> getNearbyPlaces({
     required double latitude,
@@ -15,15 +25,16 @@ abstract class NearbyDiscoveryService {
   });
 }
 
-/// Production Google Places API (New) Provider implementation.
-class GooglePlacesNearbyService implements NearbyDiscoveryService {
+/// Production Geoapify Places API provider.
+/// Strictly enforces: NO SILENT FALLBACK TO MOCK DATA.
+class GeoapifyPlacesNearbyService implements NearbyDiscoveryService {
   final String apiKey;
   final http.Client _client;
 
-  GooglePlacesNearbyService({
+  GeoapifyPlacesNearbyService({
     String? apiKey,
     http.Client? client,
-  })  : apiKey = apiKey ?? PlacesConfig.googlePlacesApiKey,
+  })  : apiKey = apiKey ?? PlacesConfig.geoapifyApiKey,
         _client = client ?? http.Client();
 
   @override
@@ -33,74 +44,129 @@ class GooglePlacesNearbyService implements NearbyDiscoveryService {
     double radiusMeters = PlacesConfig.defaultRadiusMeters,
     List<String>? includedTypes,
   }) async {
-    if (apiKey.isEmpty || apiKey == 'YOUR_API_KEY') {
-      // Fallback to Mock service if no API key configured
-      return MockNearbyDiscoveryService().getNearbyPlaces(
-        latitude: latitude,
-        longitude: longitude,
-        radiusMeters: radiusMeters,
+    final activeKey = apiKey.isNotEmpty ? apiKey : PlacesConfig.geoapifyApiKey;
+
+    if (activeKey.isEmpty ||
+        activeKey == 'YOUR_API_KEY' ||
+        activeKey == 'YOUR_GEOAPIFY_API_KEY') {
+      throw PlacesApiException(
+        'API_NOT_CONFIGURED',
+        'Geoapify API key is not configured. Please set GEOAPIFY_API_KEY to fetch live places around your location.',
       );
     }
 
-    final url = Uri.parse('https://places.googleapis.com/v1/places:searchNearby');
+    final categories = _resolveCategories(includedTypes);
+    final radius = radiusMeters.round();
+    final filter = 'circle:$longitude,$latitude,$radius';
+    final bias = 'proximity:$longitude,$latitude';
 
-    final bodyMap = <String, dynamic>{
-      'maxResultCount': PlacesConfig.maxResultCount,
-      'rankPreference': 'POPULARITY',
-      'locationRestriction': {
-        'circle': {
-          'center': {
-            'latitude': latitude,
-            'longitude': longitude,
-          },
-          'radius': radiusMeters,
-        },
+    final uri = Uri.https(
+      'api.geoapify.com',
+      '/v2/places',
+      {
+        'categories': categories,
+        'filter': filter,
+        'bias': bias,
+        'limit': PlacesConfig.maxResultCount.toString(),
+        'lang': 'en',
+        'apiKey': activeKey,
       },
-    };
+    );
 
-    if (includedTypes != null && includedTypes.isNotEmpty) {
-      bodyMap['includedTypes'] = includedTypes;
-    }
+    final response = await _client.get(uri).timeout(const Duration(seconds: 12));
 
-    try {
-      final response = await _client.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Goog-Api-Key': apiKey,
-          'X-Goog-FieldMask': PlacesConfig.googlePlacesFieldMask,
-        },
-        body: jsonEncode(bodyMap),
-      ).timeout(const Duration(seconds: 12));
-
-      if (response.statusCode != 200) {
-        // Fallback gracefully on API errors (e.g. quota, key restriction)
-        return MockNearbyDiscoveryService().getNearbyPlaces(
-          latitude: latitude,
-          longitude: longitude,
-          radiusMeters: radiusMeters,
-        );
-      }
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final rawPlaces = data['places'] as List<dynamic>? ?? [];
-
-      return rawPlaces
-          .map((p) => Place.fromGooglePlacesJson(p as Map<String, dynamic>))
-          .toList();
-    } catch (_) {
-      // Return mock fallback on network exception
-      return MockNearbyDiscoveryService().getNearbyPlaces(
-        latitude: latitude,
-        longitude: longitude,
-        radiusMeters: radiusMeters,
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw PlacesApiException(
+        'AUTH_ERROR',
+        'Geoapify authentication failed: Invalid or restricted API Key (${response.statusCode}).',
       );
     }
+
+    if (response.statusCode != 200) {
+      throw PlacesApiException(
+        'API_ERROR',
+        'Geoapify Places API returned error status ${response.statusCode}.\n${response.body}',
+      );
+    }
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final features = data['features'] as List<dynamic>? ?? [];
+
+    final seenIds = <String>{};
+    final places = <Place>[];
+
+    for (final feature in features) {
+      if (feature is! Map<String, dynamic>) continue;
+
+      final place = Place.fromGeoapifyFeature(feature);
+      if (place.id.isEmpty || seenIds.contains(place.id)) continue;
+      if (_isExcludedCategory(place.types)) continue;
+
+      seenIds.add(place.id);
+      places.add(place);
+    }
+
+    return places;
+  }
+
+  String _resolveCategories(List<String>? includedTypes) {
+    if (includedTypes == null || includedTypes.isEmpty) {
+      return PlacesConfig.geoapifyTravelCategories;
+    }
+
+    final mapped = <String>{};
+    for (final type in includedTypes) {
+      mapped.addAll(_mapGenericTypeToGeoapify(type));
+    }
+
+    return mapped.isEmpty
+        ? PlacesConfig.geoapifyTravelCategories
+        : mapped.join(',');
+  }
+
+  List<String> _mapGenericTypeToGeoapify(String type) {
+    switch (type.toLowerCase()) {
+      case 'restaurant':
+      case 'food':
+        return ['catering.restaurant', 'catering.fast_food'];
+      case 'cafe':
+        return ['catering.cafe', 'catering.bakery'];
+      case 'beach':
+        return ['natural.beach'];
+      case 'park':
+      case 'nature':
+        return ['leisure.park', 'natural.forest', 'natural.waterfall'];
+      case 'museum':
+        return ['entertainment.museum', 'entertainment.culture'];
+      case 'tourist_attraction':
+      case 'attraction':
+        return ['tourism.attraction', 'tourism.sights', 'heritage'];
+      case 'viewpoint':
+        return ['tourism.viewpoint', 'natural.peak'];
+      case 'shopping':
+      case 'shopping_mall':
+        return ['commercial.shopping_mall', 'commercial.marketplace'];
+      case 'entertainment':
+        return ['entertainment.cinema', 'entertainment.theme_park'];
+      case 'activity':
+        return ['sport.fitness_centre', 'leisure.sports_centre', 'leisure.playground'];
+      default:
+        return [type];
+    }
+  }
+
+  bool _isExcludedCategory(List<String> categories) {
+    return categories.any(
+      (category) => PlacesConfig.excludedCategoryPrefixes.any(
+        (prefix) => category.toLowerCase().startsWith(prefix),
+      ),
+    );
   }
 }
 
-/// Fallback / Demo Mock Provider.
-/// Generates realistic multi-category POIs relative to user's location.
+/// Explicit Demo Mode Provider.
+/// ONLY executed when the user explicitly enables Demo Mode in the UI.
+/// Dynamically generates sample places offset relative to the user's ACTUAL GPS coordinates!
 class MockNearbyDiscoveryService implements NearbyDiscoveryService {
   @override
   Future<List<Place>> getNearbyPlaces({
@@ -109,44 +175,41 @@ class MockNearbyDiscoveryService implements NearbyDiscoveryService {
     double radiusMeters = PlacesConfig.defaultRadiusMeters,
     List<String>? includedTypes,
   }) async {
-    // Artificial latency for smooth UI loading state demonstration
-    await Future.delayed(const Duration(milliseconds: 600));
+    await Future.delayed(const Duration(milliseconds: 500));
 
     final places = [
       Place(
-        id: 'place_1',
-        name: 'Kappad Coastal Beach & Walkway',
-        latitude: latitude + 0.012,
-        longitude: longitude + 0.015,
-        address: 'Beach Rd, Coastal Promenade',
-        category: PlaceCategory.beach,
+        id: 'demo_1',
+        name: 'Central Scenic Park & Gardens',
+        latitude: latitude + 0.008,
+        longitude: longitude + 0.006,
+        address: 'Park Avenue, Near City Center',
+        category: PlaceCategory.park,
         rating: 4.8,
         reviewCount: 2450,
         priceLevel: 'FREE',
-        types: ['beach', 'tourist_attraction', 'scenic'],
+        types: ['park', 'tourist_attraction', 'scenic'],
         photoUrl: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800',
-        metadata: {'sunset_view': true, 'crowd': 'Moderate'},
       ),
       Place(
-        id: 'place_2',
-        name: 'Ocean Peak Sunset Viewpoint',
-        latitude: latitude + 0.008,
-        longitude: longitude - 0.010,
-        address: 'Cliff View Road, Hillside District',
+        id: 'demo_2',
+        name: 'Sunset Viewpoint Promenade',
+        latitude: latitude + 0.004,
+        longitude: longitude - 0.005,
+        address: 'Hillside Drive, Sunset Hill',
         category: PlaceCategory.viewpoint,
         rating: 4.9,
         reviewCount: 1820,
         priceLevel: 'FREE',
         types: ['viewpoint', 'scenic', 'park'],
         photoUrl: 'https://images.unsplash.com/photo-1499856871958-5b9627545d1a?w=800',
-        metadata: {'photo_spot': true, 'best_time': '5:30 PM'},
       ),
       Place(
-        id: 'place_3',
-        name: 'The Heritage Seaside Cafe',
-        latitude: latitude - 0.004,
-        longitude: longitude + 0.006,
-        address: '14 Fort Promenade, Old Town',
+        id: 'demo_3',
+        name: 'Artisan Heritage Cafe & Bakery',
+        latitude: latitude - 0.003,
+        longitude: longitude + 0.004,
+        address: '14 Market Street, Heritage Quarter',
         category: PlaceCategory.cafe,
         rating: 4.7,
         reviewCount: 1290,
@@ -155,11 +218,11 @@ class MockNearbyDiscoveryService implements NearbyDiscoveryService {
         photoUrl: 'https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=800',
       ),
       Place(
-        id: 'place_4',
-        name: 'Maritime History Museum',
-        latitude: latitude - 0.009,
-        longitude: longitude - 0.005,
-        address: '88 Lighthouse Street, Cultural Quarter',
+        id: 'demo_4',
+        name: 'Cultural History Museum',
+        latitude: latitude - 0.007,
+        longitude: longitude - 0.003,
+        address: '88 Station Road, Cultural District',
         category: PlaceCategory.museum,
         rating: 4.6,
         reviewCount: 840,
@@ -168,11 +231,11 @@ class MockNearbyDiscoveryService implements NearbyDiscoveryService {
         photoUrl: 'https://images.unsplash.com/photo-1566127444979-b3d2b654e3d7?w=800',
       ),
       Place(
-        id: 'place_5',
-        name: 'Botanical Sanctuary & Pine Trails',
-        latitude: latitude + 0.018,
-        longitude: longitude - 0.012,
-        address: 'Green Valley Reserve, North Entrance',
+        id: 'demo_5',
+        name: 'Pine Tree Nature Reserve & Trail',
+        latitude: latitude + 0.012,
+        longitude: longitude - 0.008,
+        address: 'Green Valley Reserve',
         category: PlaceCategory.nature,
         rating: 4.7,
         reviewCount: 950,
@@ -181,11 +244,11 @@ class MockNearbyDiscoveryService implements NearbyDiscoveryService {
         photoUrl: 'https://images.unsplash.com/photo-1448375240586-882707db888b?w=800',
       ),
       Place(
-        id: 'place_6',
-        name: 'Spice & Artisan Craft Bazaar',
-        latitude: latitude + 0.003,
-        longitude: longitude - 0.008,
-        address: 'Main Market Square, Heritage Row',
+        id: 'demo_6',
+        name: 'Grand City Plaza & Shopping Arcade',
+        latitude: latitude + 0.002,
+        longitude: longitude - 0.006,
+        address: 'Main Commercial Belt',
         category: PlaceCategory.shopping,
         rating: 4.5,
         reviewCount: 3100,
@@ -194,11 +257,11 @@ class MockNearbyDiscoveryService implements NearbyDiscoveryService {
         photoUrl: 'https://images.unsplash.com/photo-1533900298318-6b8da08a523e?w=800',
       ),
       Place(
-        id: 'place_7',
-        name: 'Coastal Seafood Grill & Bistro',
-        latitude: latitude - 0.006,
-        longitude: longitude + 0.011,
-        address: '22 Marine Drive, Pier District',
+        id: 'demo_7',
+        name: 'Bistro & Grill House',
+        latitude: latitude - 0.005,
+        longitude: longitude + 0.008,
+        address: '22 Riverfront Boulevard',
         category: PlaceCategory.food,
         rating: 4.6,
         reviewCount: 1650,
@@ -207,43 +270,17 @@ class MockNearbyDiscoveryService implements NearbyDiscoveryService {
         photoUrl: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800',
       ),
       Place(
-        id: 'place_8',
-        name: 'Lighthouse Rock Photo Spot',
-        latitude: latitude + 0.014,
-        longitude: longitude + 0.018,
-        address: 'Cape Point Trail, South Reef',
+        id: 'demo_8',
+        name: 'Historic Pavilion Photo Spot',
+        latitude: latitude + 0.009,
+        longitude: longitude + 0.011,
+        address: 'North Lookout Ridge',
         category: PlaceCategory.photography,
         rating: 4.8,
         reviewCount: 760,
         priceLevel: 'FREE',
         types: ['scenic', 'tourist_attraction', 'viewpoint'],
         photoUrl: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=800',
-      ),
-      Place(
-        id: 'place_9',
-        name: 'Adventure Kayak & Water Sports',
-        latitude: latitude + 0.010,
-        longitude: longitude + 0.020,
-        address: 'Lagoon Bay Water Center',
-        category: PlaceCategory.activity,
-        rating: 4.9,
-        reviewCount: 520,
-        priceLevel: 'EXPENSIVE',
-        types: ['activity', 'amusement', 'sports'],
-        photoUrl: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800',
-      ),
-      Place(
-        id: 'place_10',
-        name: 'Sunset Ampitheatre & Live Arena',
-        latitude: latitude - 0.011,
-        longitude: longitude + 0.004,
-        address: 'Bayfront Park Pavilion',
-        category: PlaceCategory.entertainment,
-        rating: 4.4,
-        reviewCount: 410,
-        priceLevel: 'MODERATE',
-        types: ['entertainment', 'amusement'],
-        photoUrl: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=800',
       ),
     ];
 

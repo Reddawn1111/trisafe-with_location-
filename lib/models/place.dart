@@ -41,6 +41,17 @@ class Place {
     this.recommendationReason = '',
   });
 
+  bool get hasRating => rating > 0;
+  bool get hasReviews => reviewCount > 0;
+
+  String get ratingLabel =>
+      hasRating ? rating.toStringAsFixed(1) : 'Unavailable';
+
+  String get reviewCountLabel {
+    if (!hasReviews) return 'Reviews unavailable';
+    return '$reviewCount reviews';
+  }
+
   /// Price display string (e.g. $, $$, $$$)
   String get priceDisplay {
     if (priceLevel == null || priceLevel!.isEmpty) return '';
@@ -52,41 +63,47 @@ class Place {
     return priceLevel!;
   }
 
-  /// Create a Place instance from Google Places API (New) JSON node.
-  factory Place.fromGooglePlacesJson(Map<String, dynamic> json) {
-    final location = json['location'] as Map<String, dynamic>? ?? {};
-    final displayName = json['displayName'] as Map<String, dynamic>? ?? {};
-    final typesList = (json['types'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
-    
-    // Determine main category from types
-    PlaceCategory primaryCategory = PlaceCategory.other;
-    for (final t in typesList) {
-      final cat = PlaceCategory.fromGoogleType(t);
-      if (cat != PlaceCategory.other) {
-        primaryCategory = cat;
-        break;
-      }
-    }
+  /// Create a Place instance from a Geoapify Places API GeoJSON feature.
+  factory Place.fromGeoapifyFeature(Map<String, dynamic> feature) {
+    final geometry = feature['geometry'] as Map<String, dynamic>? ?? {};
+    final coordinates = geometry['coordinates'] as List<dynamic>? ?? [];
+    final properties = feature['properties'] as Map<String, dynamic>? ?? {};
 
-    // Photo reference if present
-    String? photoRef;
-    final photos = json['photos'] as List<dynamic>?;
-    if (photos != null && photos.isNotEmpty) {
-      photoRef = photos[0]['name']?.toString();
+    final categories = (properties['categories'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        [];
+
+    final longitude = (properties['lon'] as num?)?.toDouble() ??
+        (coordinates.isNotEmpty ? (coordinates[0] as num).toDouble() : 0.0);
+    final latitude = (properties['lat'] as num?)?.toDouble() ??
+        (coordinates.length > 1 ? (coordinates[1] as num).toDouble() : 0.0);
+
+    final address = properties['formatted']?.toString() ??
+        properties['address_line1']?.toString() ??
+        'Address unavailable';
+
+    final name = properties['name']?.toString();
+    final displayName = (name != null && name.isNotEmpty) ? name : address;
+
+    String? priceLevel;
+    if (categories.any((c) => c.contains('no_fee'))) {
+      priceLevel = 'FREE';
     }
 
     return Place(
-      id: json['id']?.toString() ?? '',
-      name: displayName['text']?.toString() ?? json['name']?.toString() ?? 'Nearby Attraction',
-      latitude: (location['latitude'] as num?)?.toDouble() ?? 0.0,
-      longitude: (location['longitude'] as num?)?.toDouble() ?? 0.0,
-      address: json['formattedAddress']?.toString() ?? 'Address unavailable',
-      category: primaryCategory,
-      rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
-      reviewCount: (json['userRatingCount'] as num?)?.toInt() ?? 0,
-      priceLevel: json['priceLevel']?.toString(),
-      types: typesList,
-      photoReference: photoRef,
+      id: properties['place_id']?.toString() ?? '',
+      name: displayName,
+      latitude: latitude,
+      longitude: longitude,
+      address: address,
+      category: PlaceCategory.primaryFromGeoapifyCategories(categories),
+      rating: 0.0,
+      reviewCount: 0,
+      priceLevel: priceLevel,
+      types: categories,
+      photoUrl: null,
+      photoReference: null,
     );
   }
 
