@@ -21,6 +21,14 @@ class HomeScreen extends StatelessWidget {
               expandedHeight: 220,
               pinned: true,
               backgroundColor: AppTheme.primary,
+              actions: [
+                IconButton(
+                  onPressed: () => Navigator.of(context)
+                      .pushNamed(AppRoutes.privacyControls),
+                  icon: const Icon(Icons.tune),
+                  tooltip: 'Privacy & data controls',
+                ),
+              ],
               flexibleSpace: FlexibleSpaceBar(
                 titlePadding: const EdgeInsets.only(
                   left: AppSpacing.md,

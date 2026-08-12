@@ -26,6 +26,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>TripSafe uses your location with consent to discover nearby places and estimate opted-in travel activity visits.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>TripSafe uses your location to show nearby places and optional consent-based travel activity insights while you use Explore.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../../app/routes.dart';
+import '../../models/activity_insights.dart';
 import '../../models/place.dart';
 import '../../models/place_category.dart';
 import '../../services/location_service.dart';
 import '../../services/nearby_discovery_service.dart';
 import '../../services/recommendation_service.dart';
+import '../../services/travel_insights_service.dart';
 import '../../services/itinerary_service.dart';
 import '../../utils/app_theme.dart';
 import '../../widgets/buttons.dart';
@@ -25,11 +28,17 @@ class _ExploreScreenState extends State<ExploreScreen> {
   final NearbyDiscoveryService _liveDiscoveryService = GeoapifyPlacesNearbyService();
   final NearbyDiscoveryService _demoDiscoveryService = MockNearbyDiscoveryService();
   final RecommendationService _recommendationService = RecommendationService();
+  final TravelInsightsService _travelInsightsService = TravelInsightsService();
 
   LocationAddress? _currentAddress;
   Position? _currentPosition;
   List<Place> _allNearbyPlaces = [];
   List<Place> _rankedPlaces = [];
+  Map<String, PlaceEngagementSignal> _engagementSignals =
+      const <String, PlaceEngagementSignal>{};
+  TravelInsightsConsentState _consentState =
+      const TravelInsightsConsentState();
+  TravelInsightsSummary _insightsSummary = TravelInsightsSummary.empty();
 
   UserIntent _selectedIntent = UserIntent.all;
   bool _isLoading = true;
@@ -84,6 +93,22 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
       _allNearbyPlaces = rawPlaces;
 
+      await _travelInsightsService.recordLocationObservation(
+        position: position,
+        nearbyPlaces: rawPlaces,
+        isDemoMode: _isDemoMode,
+      );
+
+      final consent = await _travelInsightsService.getConsentState();
+      final signals = await _travelInsightsService.getPlaceSignals();
+      final summary = await _travelInsightsService.getSummary();
+      if (!mounted) {
+        return;
+      }
+      _consentState = consent;
+      _engagementSignals = signals;
+      _insightsSummary = summary;
+
       // 4. Rank places using Recommendation Engine
       _applyRecommendationFilter();
     } on PlacesApiException catch (e) {
@@ -108,7 +133,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   void _applyRecommendationFilter() {
-    if (_currentPosition == null) {
+    if (!mounted || _currentPosition == null) {
       setState(() => _isLoading = false);
       return;
     }
@@ -119,6 +144,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
       userLongitude: _currentPosition!.longitude,
       selectedIntent: _selectedIntent,
       searchRadiusKm: 5.0,
+      engagementSignals: _engagementSignals,
     );
 
     setState(() {
@@ -154,6 +180,16 @@ class _ExploreScreenState extends State<ExploreScreen> {
             icon: const Icon(Icons.my_location),
             onPressed: _loadLocationAndPlaces,
             tooltip: 'Refresh location',
+          ),
+          IconButton(
+            icon: const Icon(Icons.tune),
+            onPressed: () async {
+              await Navigator.of(context).pushNamed(AppRoutes.privacyControls);
+              if (mounted) {
+                await _loadLocationAndPlaces();
+              }
+            },
+            tooltip: 'Privacy & data controls',
           ),
         ],
       ),
@@ -328,6 +364,18 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                const SizedBox(height: 6),
+                Text(
+                  _consentState.locationInsightsEnabled
+                      ? _consentState.trackingPaused
+                          ? 'Travel insights paused'
+                          : 'Travel insights on · ${_insightsSummary.totalEvents} detected visits'
+                      : 'Travel insights off by default',
+                  style: AppTypography.caption.copyWith(
+                    color: Colors.white.withValues(alpha: 0.88),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ],
             ),
           ),

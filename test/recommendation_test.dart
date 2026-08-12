@@ -1,3 +1,4 @@
+import 'package:tripsafe/models/activity_insights.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tripsafe/models/place.dart';
 import 'package:tripsafe/models/place_category.dart';
@@ -146,6 +147,57 @@ void main() {
 
       expect(ranked.length, equals(1));
       expect(ranked.first.id, equals('near'));
+    });
+
+    test('Engagement signals can boost a high-dwell location', () {
+      final scenic = Place(
+        id: 'scenic',
+        name: 'Scenic Point',
+        latitude: userLat + 0.01,
+        longitude: userLon + 0.01,
+        address: 'Hill Road',
+        category: PlaceCategory.viewpoint,
+        rating: 4.2,
+        reviewCount: 200,
+      );
+
+      final busyCafe = Place(
+        id: 'cafe',
+        name: 'Busy Cafe',
+        latitude: userLat + 0.009,
+        longitude: userLon + 0.009,
+        address: 'Market Street',
+        category: PlaceCategory.cafe,
+        rating: 4.5,
+        reviewCount: 900,
+      );
+
+      final withoutSignals = recommendationService.rankPlaces(
+        places: [scenic, busyCafe],
+        userLatitude: userLat,
+        userLongitude: userLon,
+      );
+      expect(withoutSignals.first.id, equals('cafe'));
+
+      final withSignals = recommendationService.rankPlaces(
+        places: [scenic, busyCafe],
+        userLatitude: userLat,
+        userLongitude: userLon,
+        engagementSignals: const {
+          'scenic': PlaceEngagementSignal(
+            placeId: 'scenic',
+            placeName: 'Scenic Point',
+            category: PlaceCategory.viewpoint,
+            visitCount: 4,
+            averageDwellMinutes: 40,
+            totalDwellMinutes: 160,
+            score: 0.95,
+          ),
+        },
+      );
+
+      expect(withSignals.first.id, equals('scenic'));
+      expect(withSignals.first.recommendationReason, contains('spend longer here'));
     });
   });
 }

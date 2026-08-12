@@ -14,6 +14,8 @@ import '../screens/timeline/timeline_screen.dart';
 import '../screens/expenses/expenses_screen.dart';
 import '../screens/expenses/settlement_screen.dart';
 import '../screens/memories/memories_screen.dart';
+import '../screens/privacy/device_activity_insights_screen.dart';
+import '../screens/privacy/privacy_controls_screen.dart';
 import '../screens/trip_summary/trip_summary_screen.dart';
 import '../screens/shared/placeholder_screen.dart';
 
@@ -38,6 +40,8 @@ abstract class AppRoutes {
   static const String settlement = '/settlement';
   static const String memories = '/memories';
   static const String summary = '/summary';
+  static const String privacyControls = '/settings/privacy';
+  static const String deviceActivityInsights = '/settings/privacy/device-activity';
 }
 
 /// Route argument key constants — avoids scattered string literals.
@@ -163,6 +167,12 @@ abstract class AppRouter {
           TripSummaryScreen(tripId: args[RouteArgs.tripId] as String? ?? ''),
           settings,
         );
+
+      case AppRoutes.privacyControls:
+        return _slide(const PrivacyControlsScreen(), settings);
+
+      case AppRoutes.deviceActivityInsights:
+        return _slide(const DeviceActivityInsightsScreen(), settings);
 
       default:
         return _slide(

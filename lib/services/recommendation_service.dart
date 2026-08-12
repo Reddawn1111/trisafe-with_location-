@@ -1,4 +1,6 @@
 import 'dart:math';
+
+import '../models/activity_insights.dart';
 import '../models/place.dart';
 import '../models/place_category.dart';
 
@@ -6,18 +8,20 @@ import '../models/place_category.dart';
 /// Scores and ranks nearby places using transparent, deterministic criteria.
 ///
 /// Weight Distribution:
-/// - Rating:          30%
-/// - Popularity:      25% (Logarithmic normalization)
-/// - Distance:        20% (Closer is higher score)
-/// - Interest Match:  20% (User intent preference)
+/// - Rating:          27%
+/// - Popularity:      22% (Logarithmic normalization)
+/// - Distance:        18% (Closer is higher score)
+/// - Interest Match:  18% (User intent preference)
 /// - Price / Safety:   5% (Placeholder for safety score integration)
+/// - Engagement:      10% (Opt-in travel activity signal)
 class RecommendationService {
   // Configurable Weight Constants (Sum = 1.0)
-  static const double weightRating = 0.30;
-  static const double weightPopularity = 0.25;
-  static const double weightDistance = 0.20;
-  static const double weightIntent = 0.20;
+  static const double weightRating = 0.27;
+  static const double weightPopularity = 0.22;
+  static const double weightDistance = 0.18;
+  static const double weightIntent = 0.18;
   static const double weightPriceSafety = 0.05;
+  static const double weightEngagement = 0.10;
 
   /// Haversine formula to compute geodesic distance between 2 coordinates in km.
   double computeDistanceKm(
@@ -46,6 +50,8 @@ class RecommendationService {
     required double userLongitude,
     UserIntent selectedIntent = UserIntent.all,
     double searchRadiusKm = 5.0,
+    Map<String, PlaceEngagementSignal> engagementSignals =
+        const <String, PlaceEngagementSignal>{},
   }) {
     if (places.isEmpty) return [];
 
@@ -83,12 +89,14 @@ class RecommendationService {
       );
 
       // 1. Rating Score (0 to 1)
-      final ratingScore = (place.rating / 5.0).clamp(0.0, 1.0);
+      final ratingScore = (place.rating / 5.0).clamp(0.0, 1.0).toDouble();
 
       // 2. Popularity Score (Logarithmic scaling so 20,000 reviews doesn't completely crush 2,000)
       final popularityScore = maxReviews == 0
           ? 0.0
-          : (log(place.reviewCount + 1) / log(maxReviews + 1)).clamp(0.0, 1.0);
+          : (log(place.reviewCount + 1) / log(maxReviews + 1))
+              .clamp(0.0, 1.0)
+              .toDouble();
 
       // 3. Distance Score (0 to 1, closer is better)
       final distanceScore = max(0.0, 1.0 - (distKm / searchRadiusKm));
@@ -100,11 +108,15 @@ class RecommendationService {
       // 5. Price / Safety Score (Placeholder default 0.85)
       const priceSafetyScore = 0.85;
 
+      final engagementScore =
+          (engagementSignals[place.id]?.score ?? 0.0).clamp(0.0, 1.0).toDouble();
+
       final totalScore = (ratingScore * weightRating) +
           (popularityScore * weightPopularity) +
           (distanceScore * weightDistance) +
           (intentScore * weightIntent) +
-          (priceSafetyScore * weightPriceSafety);
+          (priceSafetyScore * weightPriceSafety) +
+          (engagementScore * weightEngagement);
 
       // Generate explainable recommendation reason
       final reason = _generateRecommendationReason(
@@ -112,11 +124,12 @@ class RecommendationService {
         distKm: distKm,
         isIntentMatch: isMatch,
         intent: selectedIntent,
+        engagementSignal: engagementSignals[place.id],
       );
 
       return place.copyWith(
         distanceKm: distKm,
-        recommendationScore: totalScore.clamp(0.0, 1.0),
+        recommendationScore: totalScore.clamp(0.0, 1.0).toDouble(),
         recommendationReason: reason,
       );
     }).toList();
@@ -133,7 +146,12 @@ class RecommendationService {
     required double distKm,
     required bool isIntentMatch,
     required UserIntent intent,
+    PlaceEngagementSignal? engagementSignal,
   }) {
+    if (engagementSignal != null && engagementSignal.score >= 0.55) {
+      return 'Travelers tend to spend longer here';
+    }
+
     if (intent == UserIntent.photos &&
         (place.category == PlaceCategory.viewpoint || place.category == PlaceCategory.photography)) {
       return '📸 Great scenic photo spot';
