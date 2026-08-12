@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 
+import 'package:location/location.dart';
+
 /// Structured result of a reverse-geocode lookup.
 class LocationAddress {
   final double latitude;
@@ -140,5 +142,35 @@ class LocationService {
       postcode: address['postcode']?.toString(),
       fullAddress: data['display_name']?.toString() ?? 'Address unavailable',
     );
+  }
+}
+
+
+class LocationService {
+  final Location _location = Location();
+
+  Future<LocationData?> getCurrentLocation() async {
+    bool serviceEnabled = await _location.serviceEnabled();
+
+    if (!serviceEnabled) {
+      serviceEnabled = await _location.requestService();
+
+      if (!serviceEnabled) {
+        return null;
+      }
+    }
+
+    PermissionStatus permission = await _location.hasPermission();
+
+    if (permission == PermissionStatus.denied) {
+      permission = await _location.requestPermission();
+    }
+
+    if (permission != PermissionStatus.granted &&
+        permission != PermissionStatus.grantedLimited) {
+      return null;
+    }
+
+    return await _location.getLocation();
   }
 }
