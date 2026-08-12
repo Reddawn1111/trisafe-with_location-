@@ -3,6 +3,7 @@ import '../../app/routes.dart';
 import '../../utils/app_theme.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/location_summary_card.dart';
 
 /// HomeScreen — app entry point.
 /// Route: /
@@ -39,6 +40,10 @@ class HomeScreen extends StatelessWidget {
               padding: const EdgeInsets.all(AppSpacing.md),
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
+                  const SizedBox(height: AppSpacing.lg),
+                  _SectionHeader(title: 'Your Location'),
+                  const SizedBox(height: AppSpacing.sm),
+                  const LocationSummaryCard(),
                   const SizedBox(height: AppSpacing.sm),
                   _SectionHeader(title: 'Quick Actions'),
                   const SizedBox(height: AppSpacing.sm),
