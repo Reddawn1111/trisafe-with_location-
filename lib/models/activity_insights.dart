@@ -281,6 +281,9 @@ class PlaceEngagementSignal {
   final double averageDwellMinutes;
   final double totalDwellMinutes;
   final double score;
+  final String peakPeriodLabel;
+  final String trendLabel;
+  final bool isDemoData;
 
   const PlaceEngagementSignal({
     required this.placeId,
@@ -290,7 +293,94 @@ class PlaceEngagementSignal {
     required this.averageDwellMinutes,
     required this.totalDwellMinutes,
     required this.score,
+    this.peakPeriodLabel = 'Not available',
+    this.trendLabel = 'Not available',
+    this.isDemoData = false,
   });
+}
+
+class TourismPlaceInsight {
+  final String placeId;
+  final String placeName;
+  final PlaceCategory category;
+  final int estimatedVisitCount;
+  final double averageDwellMinutes;
+  final String peakPeriodLabel;
+  final String mainActivityLabel;
+  final String trendLabel;
+  final bool isDemoData;
+
+  const TourismPlaceInsight({
+    required this.placeId,
+    required this.placeName,
+    required this.category,
+    required this.estimatedVisitCount,
+    required this.averageDwellMinutes,
+    required this.peakPeriodLabel,
+    required this.mainActivityLabel,
+    required this.trendLabel,
+    this.isDemoData = false,
+  });
+}
+
+class TourismRecommendation {
+  final String title;
+  final String detail;
+
+  const TourismRecommendation({
+    required this.title,
+    required this.detail,
+  });
+}
+
+class TourismInsightsDashboard {
+  final int totalConsentedVisits;
+  final int activeTourismZones;
+  final String peakPeriodLabel;
+  final double averageDwellMinutes;
+  final List<TourismPlaceInsight> mostVisitedPlaces;
+  final Map<String, int> categoryDistribution;
+  final List<String> movementBetweenBroadZones;
+  final List<TourismRecommendation> recommendations;
+  final int minimumGroupThreshold;
+  final int suppressedStatsCount;
+  final bool isDemoData;
+  final String disclaimer;
+
+  const TourismInsightsDashboard({
+    required this.totalConsentedVisits,
+    required this.activeTourismZones,
+    required this.peakPeriodLabel,
+    required this.averageDwellMinutes,
+    required this.mostVisitedPlaces,
+    required this.categoryDistribution,
+    required this.movementBetweenBroadZones,
+    required this.recommendations,
+    required this.minimumGroupThreshold,
+    required this.suppressedStatsCount,
+    required this.isDemoData,
+    required this.disclaimer,
+  });
+
+  bool get hasPublishableData => mostVisitedPlaces.isNotEmpty;
+
+  factory TourismInsightsDashboard.empty({int minimumGroupThreshold = 5}) {
+    return TourismInsightsDashboard(
+      totalConsentedVisits: 0,
+      activeTourismZones: 0,
+      peakPeriodLabel: 'Not enough traveller data yet',
+      averageDwellMinutes: 0,
+      mostVisitedPlaces: const <TourismPlaceInsight>[],
+      categoryDistribution: const <String, int>{},
+      movementBetweenBroadZones: const <String>[],
+      recommendations: const <TourismRecommendation>[],
+      minimumGroupThreshold: minimumGroupThreshold,
+      suppressedStatsCount: 0,
+      isDemoData: false,
+      disclaimer:
+          'Aggregate statistics appear only after enough consenting visits are available.',
+    );
+  }
 }
 
 class TravelInsightsSummary {

@@ -1,6 +1,6 @@
 import 'package:geolocator/geolocator.dart';
 
-import '../models/activity_insights.dart';
+import '../models/activity_insights.dart' as insights;
 import '../models/place.dart';
 import '../models/place_category.dart';
 
@@ -11,10 +11,10 @@ class VisitDetectionService {
   static final Duration duplicateWindow = const Duration(hours: 3);
   static final Duration recentSampleWindow = const Duration(hours: 2);
 
-  ActivityEvent? detectVisitEvent({
-    required LocationSample latestSample,
-    required List<LocationSample> recentSamples,
-    required List<ActivityEvent> existingEvents,
+  insights.ActivityEvent? detectVisitEvent({
+    required insights.LocationSample latestSample,
+    required List<insights.LocationSample> recentSamples,
+    required List<insights.ActivityEvent> existingEvents,
     required List<Place> nearbyPlaces,
     required bool consentGranted,
     required bool isDemoMode,
@@ -73,7 +73,7 @@ class VisitDetectionService {
       dwell: dwell,
     );
 
-    return ActivityEvent(
+    return insights.ActivityEvent(
       id: 'activity_${latestSample.timestamp.microsecondsSinceEpoch}',
       timestamp: latestSample.timestamp,
       latitude: latestSample.latitude,
@@ -85,7 +85,9 @@ class VisitDetectionService {
       duration: dwell,
       confidence: confidence,
       source:
-          isDemoMode ? ActivityEventSource.demo : ActivityEventSource.location,
+          isDemoMode
+              ? insights.ActivityEventSource.demo
+              : insights.ActivityEventSource.location,
       consentGranted: consentGranted,
       arrivalTime: arrivalTime,
       departureTime: departureTime,
@@ -132,32 +134,32 @@ class VisitDetectionService {
         .toDouble();
   }
 
-  ActivityType _mapCategoryToActivityType(PlaceCategory category) {
+  insights.ActivityType _mapCategoryToActivityType(PlaceCategory category) {
     switch (category) {
       case PlaceCategory.food:
       case PlaceCategory.cafe:
-        return ActivityType.eating;
+        return insights.ActivityType.eating;
       case PlaceCategory.shopping:
-        return ActivityType.shopping;
+        return insights.ActivityType.shopping;
       case PlaceCategory.attraction:
       case PlaceCategory.museum:
       case PlaceCategory.religious:
-        return ActivityType.tourism;
+        return insights.ActivityType.tourism;
       case PlaceCategory.park:
       case PlaceCategory.nature:
       case PlaceCategory.beach:
-        return ActivityType.walking;
+        return insights.ActivityType.walking;
       case PlaceCategory.activity:
-        return ActivityType.sports;
+        return insights.ActivityType.sports;
       case PlaceCategory.entertainment:
-        return ActivityType.entertainment;
+        return insights.ActivityType.entertainment;
       case PlaceCategory.viewpoint:
       case PlaceCategory.photography:
-        return ActivityType.photoSpot;
+        return insights.ActivityType.photoSpot;
       case PlaceCategory.hotel:
-        return ActivityType.rest;
+        return insights.ActivityType.rest;
       case PlaceCategory.other:
-        return ActivityType.travel;
+        return insights.ActivityType.travel;
     }
   }
 }

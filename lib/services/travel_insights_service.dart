@@ -57,6 +57,19 @@ class TravelInsightsService {
     return _analyticsService.buildPlaceSignals(events);
   }
 
+  Map<String, PlaceEngagementSignal> getDemoPlaceSignals(List<Place> places) {
+    return _analyticsService.buildDemoPlaceSignals(places);
+  }
+
+  Future<TourismInsightsDashboard> getTourismDashboard() async {
+    final events = await _repository.loadActivityEvents();
+    return _analyticsService.buildTourismDashboard(events);
+  }
+
+  TourismInsightsDashboard getDemoTourismDashboard() {
+    return _analyticsService.buildDemoTourismDashboard();
+  }
+
   Future<void> recordLocationObservation({
     required Position position,
     required List<Place> nearbyPlaces,
